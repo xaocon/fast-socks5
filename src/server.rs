@@ -351,7 +351,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
         trace!("Socks5Socket: get_methods()");
         // read the first 2 bytes which contains the SOCKS version and the methods len()
         let [version, methods_len] =
-            read_exact!(self.inner, [0u8; 2]).context("Can't read methods")?;
+            read_exact!(self.inner, [0u8; 2])?;
         debug!(
             "Handshake headers: [version: {version}, methods len: {len}]",
             version = version,
@@ -365,8 +365,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
         // {METHODS available from the client}
         // eg. (non-auth) {0, 1}
         // eg. (auth)     {0, 1, 2}
-        let methods = read_exact!(self.inner, vec![0u8; methods_len as usize])
-            .context("Can't get methods.")?;
+        let methods = read_exact!(self.inner, vec![0u8; methods_len as usize])?;
         debug!("methods supported sent by the client: {:?}", &methods);
 
         // Return methods available
@@ -413,7 +412,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
                             consts::SOCKS5_AUTH_METHOD_NOT_ACCEPTABLE,
                         ])
                         .await
-                        .context("Can't reply with method not acceptable.")?;
+                        .map_err(|e| SocksError::from(e))?;
 
                     return Err(SocksError::AuthMethodUnacceptable(client_methods));
                 }
@@ -430,13 +429,13 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
         self.inner
             .write(&[consts::SOCKS5_VERSION, method_supported])
             .await
-            .context("Can't reply with method auth-none")?;
+            .map_err(|e| SocksError::from(e))?;
         Ok(method_supported)
     }
 
     async fn read_username_password(socket: &mut T) -> Result<(String, String)> {
         trace!("Socks5Socket: authenticate()");
-        let [version, user_len] = read_exact!(socket, [0u8; 2]).context("Can't read user len")?;
+        let [version, user_len] = read_exact!(socket, [0u8; 2])?;
         debug!(
             "Auth: [version: {version}, user len: {len}]",
             version = version,
@@ -451,10 +450,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
         }
 
         let username =
-            read_exact!(socket, vec![0u8; user_len as usize]).context("Can't get username.")?;
+            read_exact!(socket, vec![0u8; user_len as usize])?;
         debug!("username bytes: {:?}", &username);
 
-        let [pass_len] = read_exact!(socket, [0u8; 1]).context("Can't read pass len")?;
+        let [pass_len] = read_exact!(socket, [0u8; 1])?;
         debug!("Auth: [pass len: {len}]", len = pass_len,);
 
         if pass_len < 1 {
@@ -465,11 +464,13 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
         }
 
         let password =
-            read_exact!(socket, vec![0u8; pass_len as usize]).context("Can't get password.")?;
+            read_exact!(socket, vec![0u8; pass_len as usize])?;
         debug!("password bytes: {:?}", &password);
 
-        let username = String::from_utf8(username).context("Failed to convert username")?;
-        let password = String::from_utf8(password).context("Failed to convert password")?;
+        let username = String::from_utf8(username)
+            .map_err(|e| SocksError::AuthenticationFailed(format!("Failed to decode username: {}", e)))?;
+        let password = String::from_utf8(password)
+            .map_err(|e| SocksError::AuthenticationFailed(format!("Failed to decode password: {}", e)))?;
 
         Ok((username, password))
     }
@@ -489,7 +490,12 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
             None
         };
 
-        let auth = self.config.auth.as_ref().context("No auth module")?;
+        let auth = match self.config.auth.as_ref() {
+            Some(auth) => auth,
+            None => return Err(SocksError::AuthenticationRejected(format!(
+                "No auth module"
+            ))),
+        };
 
         if let Some(credentials) = auth.authenticate(credentials).await {
             if auth_method == consts::SOCKS5_AUTH_METHOD_PASSWORD {
@@ -497,7 +503,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
                 self.inner
                     .write_all(&[1, consts::SOCKS5_REPLY_SUCCEEDED])
                     .await
-                    .context("Can't reply auth success")?;
+                    ?;
             }
 
             info!("User logged successfully.");
@@ -507,7 +513,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
             self.inner
                 .write_all(&[1, consts::SOCKS5_AUTH_METHOD_NOT_ACCEPTABLE])
                 .await
-                .context("Can't reply with auth method not acceptable.")?;
+                ?;
 
             return Err(SocksError::AuthenticationRejected(format!(
                 "Authentication, rejected."
@@ -540,9 +546,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
         self.inner
             .write(&reply)
             .await
-            .context("Can't write the reply!")?;
+            ?;
 
-        self.inner.flush().await.context("Can't flush the reply!")?;
+        self.inner.flush().await?;
 
         Ok(())
     }
@@ -563,7 +569,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
     ///
     async fn read_command(&mut self) -> Result<()> {
         let [version, cmd, rsv, address_type] =
-            read_exact!(self.inner, [0u8; 4]).context("Malformed request")?;
+            read_exact!(self.inner, [0u8; 4])?;
         debug!(
             "Request: [version: {version}, command: {cmd}, rev: {rsv}, address_type: {address_type}]",
             version = version,
@@ -647,13 +653,16 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
     async fn execute_command_connect(&mut self) -> Result<()> {
         // async-std's ToSocketAddrs doesn't supports external trait implementation
         // @see https://github.com/async-rs/async-std/issues/539
-        let addr = self
-            .target_addr
-            .as_ref()
-            .context("target_addr empty")?
-            .to_socket_addrs()?
-            .next()
-            .context("unreachable")?;
+        let addr = match self.target_addr.as_ref() {
+            Some(addr) => match addr.to_socket_addrs() {
+                Ok(mut addrs) => match addrs.next() {
+                    Some(addr) => addr,
+                    None => return Err(SocksError::InvalidAddress("Invalid address".to_string())),
+                },
+                Err(err) => return Err(err.into()),
+            },
+            None => return Err(SocksError::InvalidAddress("Invalid address".to_string())),
+        };
 
         // TCP connect with timeout, to avoid memory leak for connection that takes forever
         let outbound = tcp_connect_with_timeout(addr, self.config.request_timeout).await?;
@@ -665,10 +674,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
                 &ReplyError::Succeeded,
                 SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
             ))
-            .await
-            .context("Can't write successful reply")?;
+            .await?;
 
-        self.inner.flush().await.context("Can't flush the reply!")?;
+        self.inner.flush().await?;
 
         debug!("Wrote success");
 
@@ -696,12 +704,12 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
             .write(&new_reply(
                 &ReplyError::Succeeded,
                 SocketAddr::new(
-                    self.reply_ip.context("invalid reply ip")?,
+                    self.reply_ip.ok_or(SocksError::InvalidAddress("invalid reply ip".into()))?,
                     peer_sock.local_addr()?.port(),
                 ),
             ))
             .await
-            .context("Can't write successful reply")?;
+            ?;
 
         debug!("Wrote success");
 
@@ -769,7 +777,8 @@ async fn handle_udp_request(inbound: &UdpSocket, outbound: &UdpSocket) -> Result
         let mut target_addr = target_addr
             .to_socket_addrs()?
             .next()
-            .context("unreachable")?;
+            // TODO: new error type
+            .ok_or(SocksError::InvalidAddress("unreachable".into()))?;
 
         target_addr.set_ip(match target_addr.ip() {
             std::net::IpAddr::V4(v4) => std::net::IpAddr::V6(v4.to_ipv6_mapped()),

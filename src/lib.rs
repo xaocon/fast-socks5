@@ -135,6 +135,8 @@ pub enum SocksError {
     Redaction(String),
     #[error("invalid header (expected {expected:?}, found {found:?})")]
     InvalidHeader { expected: String, found: String },
+    #[error("invalid address `{0}`")]
+    InvalidAddress(String),
 
     #[error("Auth method unacceptable `{0:?}`.")]
     AuthMethodUnacceptable(Vec<u8>),
