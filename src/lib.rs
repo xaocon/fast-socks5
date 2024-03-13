@@ -310,8 +310,8 @@ mod test {
         auth: Option<SimpleUserPassword>,
         tx: Sender<SocketAddr>,
     ) -> Result<()> {
-        let mut config = server::Config::default();
-        config.set_udp_support(true);
+        let config = server::Config::default()
+            .set_udp_support(true);
         let config = match auth {
             None => config,
             Some(up) => config.with_authentication(up),

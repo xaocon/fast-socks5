@@ -73,8 +73,8 @@ async fn main() -> Result<()> {
 
 async fn spawn_socks_server() -> Result<()> {
     let opt: Opt = Opt::from_args();
-    let mut config = Config::default();
-    config.set_request_timeout(opt.request_timeout);
+    let config = Config::default()
+        .set_request_timeout(opt.request_timeout);
 
     let config = match opt.auth {
         AuthMode::NoAuth => {

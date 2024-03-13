@@ -127,14 +127,14 @@ impl Authentication for AcceptAuthentication {
 
 impl<A: Authentication> Config<A> {
     /// How much time it should wait until the request timeout.
-    pub fn set_request_timeout(&mut self, n: u64) -> &mut Self {
+    pub fn set_request_timeout(mut self, n: u64) -> Self {
         self.request_timeout = n;
         self
     }
 
     /// Skip the entire auth/handshake part, which means the server will directly wait for
     /// the command request.
-    pub fn set_skip_auth(&mut self, value: bool) -> &mut Self {
+    pub fn set_skip_auth(mut self, value: bool) -> Self {
         self.skip_auth = value;
         self.auth = None;
         self
@@ -157,25 +157,25 @@ impl<A: Authentication> Config<A> {
 
     /// For some complex scenarios, we may want to either accept Username/Password configuration
     /// or IP Whitelisting, in case the client send only 2 auth methods rather than 3 (with auth)
-    pub fn set_allow_no_auth(&mut self, value: bool) -> &mut Self {
+    pub fn set_allow_no_auth(mut self, value: bool) -> Self {
         self.allow_no_auth = value;
         self
     }
 
     /// Set whether or not to execute commands
-    pub fn set_execute_command(&mut self, value: bool) -> &mut Self {
+    pub fn set_execute_command(mut self, value: bool) -> Self {
         self.execute_command = value;
         self
     }
 
     /// Will the server perform dns resolve
-    pub fn set_dns_resolve(&mut self, value: bool) -> &mut Self {
+    pub fn set_dns_resolve(mut self, value: bool) -> Self {
         self.dns_resolve = value;
         self
     }
 
     /// Set whether or not to allow udp traffic
-    pub fn set_udp_support(&mut self, value: bool) -> &mut Self {
+    pub fn set_udp_support(mut self, value: bool) -> Self {
         self.allow_udp = value;
         self
     }
