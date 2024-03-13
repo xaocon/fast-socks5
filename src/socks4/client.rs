@@ -1,4 +1,4 @@
-#[forbid(unsafe_code)]
+#![forbid(unsafe_code)]
 use crate::read_exact;
 use crate::socks4::{consts, ReplyError, Socks4Command};
 use crate::util::target_addr::{TargetAddr, ToTargetAddr};

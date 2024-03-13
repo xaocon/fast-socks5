@@ -1,4 +1,4 @@
-#[forbid(unsafe_code)]
+#![forbid(unsafe_code)]
 #[macro_use]
 extern crate log;
 
@@ -73,8 +73,7 @@ async fn main() -> Result<()> {
 
 async fn spawn_socks_server() -> Result<()> {
     let opt: Opt = Opt::from_args();
-    let config = Config::default()
-        .set_request_timeout(opt.request_timeout);
+    let config = Config::default().set_request_timeout(opt.request_timeout);
 
     let config = match opt.auth {
         AuthMode::NoAuth => {

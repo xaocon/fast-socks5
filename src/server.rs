@@ -502,16 +502,16 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
 
             info!("User logged successfully.");
 
-            return Ok(credentials);
+            Ok(credentials)
         } else {
             self.inner
                 .write_all(&[1, consts::SOCKS5_AUTH_METHOD_NOT_ACCEPTABLE])
                 .await
                 .context("Can't reply with auth method not acceptable.")?;
 
-            return Err(SocksError::AuthenticationRejected(format!(
-                "Authentication, rejected."
-            )));
+            Err(SocksError::AuthenticationRejected(
+                "Authentication, rejected.".to_string(),
+            ))
         }
     }
 
@@ -630,10 +630,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin, A: Authentication> Socks5Socket<T, A> {
             None => Err(ReplyError::CommandNotSupported.into()),
             Some(cmd) => match cmd {
                 Socks5Command::TCPBind => Err(ReplyError::CommandNotSupported.into()),
-                Socks5Command::TCPConnect => return self.execute_command_connect().await,
+                Socks5Command::TCPConnect => self.execute_command_connect().await,
                 Socks5Command::UDPAssociate => {
                     if self.config.allow_udp {
-                        return self.execute_command_udp_assoc().await;
+                        self.execute_command_udp_assoc().await
                     } else {
                         Err(ReplyError::CommandNotSupported.into())
                     }

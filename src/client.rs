@@ -16,22 +16,13 @@ use tokio::net::{TcpStream, UdpSocket};
 
 const MAX_ADDR_LEN: usize = 260;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Config {
     /// Timeout of the socket connect
     connect_timeout: Option<u64>,
     /// Avoid useless roundtrips if we don't need the Authentication layer
     /// make sure to also activate it on the server side.
     skip_auth: bool,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            connect_timeout: None,
-            skip_auth: false,
-        }
-    }
 }
 
 impl Config {
@@ -208,9 +199,9 @@ where
                 ref username,
                 ref password,
             }) => Ok((username, password)),
-            None => Err(SocksError::AuthenticationRejected(format!(
-                "Authentication rejected, missing user pass"
-            ))),
+            None => Err(SocksError::AuthenticationRejected(
+                "Authentication rejected, missing user pass".to_string(),
+            )),
         }?;
 
         let user_bytes = username.as_bytes();
@@ -486,7 +477,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Socks5Datagram<S> {
         let mut buf = new_udp_header(addr)?;
         buf.extend_from_slice(data);
 
-        return Ok(self.socket.send(&buf).await?);
+        Ok(self.socket.send(&buf).await?)
     }
 
     /// Like `UdpSocket::recv_from`.
@@ -494,7 +485,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Socks5Datagram<S> {
         let mut buf = [0u8; 0x10000];
         let (size, _) = self.socket.recv_from(&mut buf).await?;
 
-        let (frag, target_addr, data) = parse_udp_request(&mut buf[..size]).await?;
+        let (frag, target_addr, data) = parse_udp_request(&buf[..size]).await?;
 
         if frag != 0 {
             return Err(SocksError::Other(anyhow::anyhow!(
