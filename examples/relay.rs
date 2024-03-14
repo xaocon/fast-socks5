@@ -1,11 +1,11 @@
 #![forbid(unsafe_code)]
-#[macro_use]
-extern crate log;
+
+use log::{trace, info, error, debug};
 
 use fast_socks5::{
     client::{self, Socks5Stream},
     server::{Config, SimpleUserPassword, Socks5Server, Socks5Socket},
-    Result, SocksError,
+    Result,
 };
 use std::{io::ErrorKind, net::ToSocketAddrs};
 use std::future::Future;
@@ -13,7 +13,6 @@ use structopt::StructOpt;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::task;
 use tokio_stream::StreamExt;
-use anyhow::{anyhow, Context};
 
 const UPSTREAM_PROXY: &str = "127.0.0.1:1333";
 
@@ -64,23 +63,6 @@ async fn spawn_socks_server() -> Result<()> {
         .set_request_timeout(opt.request_timeout)
         .set_skip_auth(opt.skip_auth)
         .set_dns_resolve(false);
-
-    // let config = match opt.auth {
-    //     AuthMode::NoAuth => {
-    //         warn!("No authentication has been set!");
-    //         config
-    //     }
-    //     AuthMode::Password { username, password } => {
-    //         if opt.skip_auth {
-    //             return Err(SocksError::ArgumentInputError(
-    //                 "Can't use skip-auth flag and authentication altogether.",
-    //             ));
-    //         }
-
-    //         info!("Simple auth system has been set.");
-    //         config.with_authentication(SimpleUserPassword { username, password })
-    //     }
-    // };
 
     let listener = <Socks5Server>::bind(&opt.listen_addr).await?;
     let listener = listener.with_config(config);
