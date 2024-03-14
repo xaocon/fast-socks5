@@ -3,14 +3,19 @@
 extern crate log;
 
 use fast_socks5::{
+    client::{self, Socks5Stream},
     server::{Config, SimpleUserPassword, Socks5Server, Socks5Socket},
     Result, SocksError,
 };
+use std::{io::ErrorKind, net::ToSocketAddrs};
 use std::future::Future;
 use structopt::StructOpt;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::task;
 use tokio_stream::StreamExt;
+use anyhow::{anyhow, Context};
+
+const UPSTREAM_PROXY: &str = "127.0.0.1:1333";
 
 /// # How to use it:
 ///
@@ -34,26 +39,9 @@ struct Opt {
     #[structopt(short = "t", long, default_value = "1000")]
     pub request_timeout: u64,
 
-    /// Choose authentication type
-    #[structopt(subcommand, name = "auth")] // Note that we mark a field as a subcommand
-    pub auth: AuthMode,
-
     /// Don't perform the auth handshake, send directly the command request
     #[structopt(short = "k", long)]
     pub skip_auth: bool,
-}
-
-/// Choose the authentication type
-#[derive(StructOpt, Debug)]
-enum AuthMode {
-    NoAuth,
-    Password {
-        #[structopt(short, long)]
-        username: String,
-
-        #[structopt(short, long)]
-        password: String,
-    },
 }
 
 /// Useful read 1. https://blog.yoshuawuyts.com/rust-streams/
@@ -74,24 +62,25 @@ async fn spawn_socks_server() -> Result<()> {
     let opt: Opt = Opt::from_args();
     let config = Config::default()
         .set_request_timeout(opt.request_timeout)
-        .set_skip_auth(opt.skip_auth);
+        .set_skip_auth(opt.skip_auth)
+        .set_dns_resolve(false);
 
-    let config = match opt.auth {
-        AuthMode::NoAuth => {
-            warn!("No authentication has been set!");
-            config
-        }
-        AuthMode::Password { username, password } => {
-            if opt.skip_auth {
-                return Err(SocksError::ArgumentInputError(
-                    "Can't use skip-auth flag and authentication altogether.",
-                ));
-            }
+    // let config = match opt.auth {
+    //     AuthMode::NoAuth => {
+    //         warn!("No authentication has been set!");
+    //         config
+    //     }
+    //     AuthMode::Password { username, password } => {
+    //         if opt.skip_auth {
+    //             return Err(SocksError::ArgumentInputError(
+    //                 "Can't use skip-auth flag and authentication altogether.",
+    //             ));
+    //         }
 
-            info!("Simple auth system has been set.");
-            config.with_authentication(SimpleUserPassword { username, password })
-        }
-    };
+    //         info!("Simple auth system has been set.");
+    //         config.with_authentication(SimpleUserPassword { username, password })
+    //     }
+    // };
 
     let listener = <Socks5Server>::bind(&opt.listen_addr).await?;
     let listener = listener.with_config(config);
@@ -118,16 +107,54 @@ async fn spawn_socks_server() -> Result<()> {
 fn spawn_and_log_error<F, T>(fut: F) -> task::JoinHandle<()>
 where
     F: Future<Output = Result<Socks5Socket<T, SimpleUserPassword>>> + Send + 'static,
-    T: AsyncRead + AsyncWrite + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin + Send, // Add the Send trait here
 {
     task::spawn(async move {
         match fut.await {
-            Ok(_socket) => {
-                // the user is validated by the trait, so it can't be null
-                // let user = socket.take_credentials().unwrap();
-
-                // info!("user logged in with `{}`", user.username);
+            Ok(mut socks5_socket) => {
                 trace!("It's here");
+
+                // resolve dns
+                socks5_socket
+                    .resolve_dns()
+                    .await.unwrap();
+
+                // get actual socket address
+                let target_addr = socks5_socket
+                    .target_addr().unwrap();
+                debug!(
+                    "incoming request resolved target address to: {}",
+                    target_addr
+                );
+
+                let socket_addr = target_addr
+                    .to_socket_addrs()
+                    .unwrap()
+                    .next()
+                    .unwrap();
+
+                // connect to downstream proxy
+                let mut stream = Socks5Stream::connect(
+                    UPSTREAM_PROXY,
+                    socket_addr.ip().to_string(),
+                    socket_addr.port(),
+                    client::Config::default(),
+                )
+                .await.unwrap();
+
+                match tokio::io::copy_bidirectional(&mut stream, &mut socks5_socket).await {
+                    Ok(res) => info!("socket transfer closed ({}, {})", res.0, res.1),
+                    Err(err) => match err.kind() {
+                        ErrorKind::NotConnected => {
+                            info!("socket transfer closed by client");
+                        }
+                        ErrorKind::ConnectionReset => {
+                            info!("socket transfer closed by downstream proxy");
+                        }
+                        _ => error!("transfer error: {:?}", err),
+                    },
+                };
+        
             }
             Err(err) => error!("{:#}", &err),
         }

@@ -3,7 +3,13 @@
 extern crate log;
 
 pub mod client;
+#[cfg(feature = "relay")]
+#[path = "relay.rs"]
 pub mod server;
+
+#[cfg(not(feature = "relay"))]
+pub mod server;
+
 pub mod util;
 
 #[cfg(feature = "socks4")]
